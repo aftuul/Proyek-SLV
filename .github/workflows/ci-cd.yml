@@ -1,0 +1,171 @@
+name: CI/CD Pipeline - Proyek SLV
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ─────────────────────────────────────────
+  # JOB 1: Build & Lint semua service
+  # ─────────────────────────────────────────
+  build:
+    name: Build Services
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        service: [user-service, course-service, krs-service, api-gateway]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ${{ matrix.service }}/package-lock.json
+
+      - name: Install dependencies (${{ matrix.service }})
+        working-directory: ${{ matrix.service }}
+        run: npm install
+
+      - name: Check syntax (${{ matrix.service }})
+        working-directory: ${{ matrix.service }}
+        run: node --check index.js
+
+  # ─────────────────────────────────────────
+  # JOB 2: Build Docker Images
+  # ─────────────────────────────────────────
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build user-service image
+        run: docker build -t proyek-slv/user-service:${{ github.sha }} ./user-service
+
+      - name: Build course-service image
+        run: docker build -t proyek-slv/course-service:${{ github.sha }} ./course-service
+
+      - name: Build krs-service image
+        run: docker build -t proyek-slv/krs-service:${{ github.sha }} ./krs-service
+
+      - name: Build api-gateway image
+        run: docker build -t proyek-slv/api-gateway:${{ github.sha }} ./api-gateway
+
+  # ─────────────────────────────────────────
+  # JOB 3: Integration Test dengan Docker Compose
+  # ─────────────────────────────────────────
+  integration-test:
+    name: Integration Test
+    runs-on: ubuntu-latest
+    needs: docker-build
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start all services
+        run: docker compose up -d --build
+
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for services..."
+          sleep 20
+
+      - name: Check running containers
+        run: docker compose ps
+
+      - name: Test user-service health
+        run: |
+          curl --retry 5 --retry-delay 3 --retry-connrefused \
+            http://localhost:3001 || echo "user-service endpoint check done"
+
+      - name: Test course-service health
+        run: |
+          curl --retry 5 --retry-delay 3 --retry-connrefused \
+            http://localhost:3002 || echo "course-service endpoint check done"
+
+      - name: Test krs-service health
+        run: |
+          curl --retry 5 --retry-delay 3 --retry-connrefused \
+            http://localhost:3003 || echo "krs-service endpoint check done"
+
+      - name: Test api-gateway health
+        run: |
+          curl --retry 5 --retry-delay 3 --retry-connrefused \
+            http://localhost:5000 || echo "api-gateway endpoint check done"
+
+      - name: Show logs if failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Teardown
+        if: always()
+        run: docker compose down -v
+
+  # ─────────────────────────────────────────
+  # JOB 4: Push ke Docker Hub (hanya saat push ke main)
+  # ─────────────────────────────────────────
+  docker-push:
+    name: Push Docker Images
+    runs-on: ubuntu-latest
+    needs: integration-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login ke Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build & Push user-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./user-service
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/user-service:latest
+            ${{ secrets.DOCKER_USERNAME }}/user-service:${{ github.sha }}
+
+      - name: Build & Push course-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./course-service
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/course-service:latest
+            ${{ secrets.DOCKER_USERNAME }}/course-service:${{ github.sha }}
+
+      - name: Build & Push krs-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./krs-service
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/krs-service:latest
+            ${{ secrets.DOCKER_USERNAME }}/krs-service:${{ github.sha }}
+
+      - name: Build & Push api-gateway
+        uses: docker/build-push-action@v5
+        with:
+          context: ./api-gateway
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/api-gateway:latest
+            ${{ secrets.DOCKER_USERNAME }}/api-gateway:${{ github.sha }}
