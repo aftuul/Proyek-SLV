@@ -11,7 +11,7 @@ jobs:
   # JOB 1: Build & Lint semua service
   # ─────────────────────────────────────────
   build:
-    name: Build Services
+    name: Build Services (${{ matrix.service }})
     runs-on: ubuntu-latest
 
     strategy:
@@ -38,12 +38,66 @@ jobs:
         run: node --check index.js
 
   # ─────────────────────────────────────────
-  # JOB 2: Build Docker Images
+  # JOB 2: Unit Test semua service
+  # ─────────────────────────────────────────
+  unit-test:
+    name: Unit Test (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    needs: build
+
+    strategy:
+      matrix:
+        include:
+          - service: user-service
+            port: 3001
+          - service: course-service
+            port: 3002
+          - service: krs-service
+            port: 3003
+          - service: api-gateway
+            port: 5000
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies + jest + supertest
+        working-directory: ${{ matrix.service }}
+        run: |
+          npm install
+          npm install --save-dev jest supertest
+
+      - name: Salin app.js (testable version)
+        run: cp .github/test-apps/${{ matrix.service }}/app.js ${{ matrix.service }}/app.js
+
+      - name: Salin file test
+        run: |
+          mkdir -p ${{ matrix.service }}/__tests__
+          cp .github/tests/${{ matrix.service }}.test.js ${{ matrix.service }}/__tests__/
+
+      - name: Jalankan unit test
+        working-directory: ${{ matrix.service }}
+        run: npx jest --coverage --passWithNoTests
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.service }}
+          path: ${{ matrix.service }}/coverage/
+
+  # ─────────────────────────────────────────
+  # JOB 3: Build Docker Images
   # ─────────────────────────────────────────
   docker-build:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: build
+    needs: unit-test
 
     steps:
       - name: Checkout repository
@@ -51,6 +105,12 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Login ke Docker Hub (hindari rate limit)
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build user-service image
         run: docker build -t proyek-slv/user-service:${{ github.sha }} ./user-service
@@ -65,7 +125,7 @@ jobs:
         run: docker build -t proyek-slv/api-gateway:${{ github.sha }} ./api-gateway
 
   # ─────────────────────────────────────────
-  # JOB 3: Integration Test dengan Docker Compose
+  # JOB 4: Integration Test dengan Docker Compose
   # ─────────────────────────────────────────
   integration-test:
     name: Integration Test
@@ -122,7 +182,7 @@ jobs:
         run: docker compose down -v
 
   # ─────────────────────────────────────────
-  # JOB 4: Push ke Docker Hub (hanya saat push ke main)
+  # JOB 5: Push ke Docker Hub (hanya saat push ke main)
   # ─────────────────────────────────────────
   docker-push:
     name: Push Docker Images
