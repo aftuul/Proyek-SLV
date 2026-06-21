@@ -56,9 +56,3 @@ services:
     container_name: api-gateway
     ports:
       - "5000:5000"
-
-  frontend:
-    build: ./frontend
-    container_name: frontend
-    ports:
-      - "3000:3000"
