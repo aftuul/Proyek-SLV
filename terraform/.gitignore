@@ -1,0 +1,16 @@
+# File sensitif — JANGAN commit ke GitHub
+terraform.tfvars
+*.tfvars
+!*.tfvars.example
+
+# Terraform generated files
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate
+*.tfstate.*
+
+# Crash log
+crash.log
+crash.*.log

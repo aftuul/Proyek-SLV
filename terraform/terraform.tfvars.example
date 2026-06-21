@@ -1,0 +1,11 @@
+# Salin file ini jadi terraform.tfvars dan isi nilainya
+# JANGAN commit terraform.tfvars ke GitHub! (sudah ada di .gitignore)
+
+aws_region    = "ap-southeast-1"
+project_name  = "proyek-slv"
+environment   = "dev"
+vpc_cidr      = "10.0.0.0/16"
+instance_type = "t3.small"
+key_name      = "proyek-slv-key"
+db_username   = "admin"
+db_password   = "GantiPasswordIni123!"
